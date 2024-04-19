@@ -15,14 +15,17 @@ import (
 	"gopkg.in/gomail.v2"
 )
 
+// 这是一个 邮箱通道
 var mailch chan *gomail.Message
 
+// 邮箱发送器
 type EmailSender struct {
 	subjectTpl *template.Template
 	contentTpl *template.Template
 	smtp       aconf.SMTPConfig
 }
 
+// 处理告警事件的时候会去发送邮件
 func (es *EmailSender) Send(ctx MessageContext) {
 	if len(ctx.Users) == 0 || len(ctx.Events) == 0 {
 		return
@@ -41,6 +44,7 @@ func (es *EmailSender) Send(ctx MessageContext) {
 	ctx.Stats.AlertNotifyTotal.WithLabelValues(models.Email).Add(float64(len(tos)))
 }
 
+// extract 提取 用户对象的邮箱地址
 func extract(users []*models.User) []string {
 	tos := make([]string, 0, len(users))
 	for _, u := range users {
@@ -51,6 +55,7 @@ func extract(users []*models.User) []string {
 	return tos
 }
 
+// 测试连接时，会去 模拟发送一次
 func SendEmail(subject, content string, tos []string, stmp aconf.SMTPConfig) error {
 	conf := stmp
 
@@ -73,6 +78,7 @@ func SendEmail(subject, content string, tos []string, stmp aconf.SMTPConfig) err
 	return nil
 }
 
+// 邮件的内容
 func (es *EmailSender) WriteEmail(subject, content string, tos []string) {
 	m := gomail.NewMessage()
 
@@ -84,6 +90,7 @@ func (es *EmailSender) WriteEmail(subject, content string, tos []string) {
 	mailch <- m
 }
 
+// 拨号 SMTP
 func dialSmtp(d *gomail.Dialer) gomail.SendCloser {
 	for {
 		if s, err := d.Dial(); err != nil {
@@ -98,6 +105,7 @@ func dialSmtp(d *gomail.Dialer) gomail.SendCloser {
 
 var mailQuit = make(chan struct{})
 
+// 重置邮件发送器
 func RestartEmailSender(smtp aconf.SMTPConfig) {
 	close(mailQuit)
 	mailQuit = make(chan struct{})
@@ -106,15 +114,17 @@ func RestartEmailSender(smtp aconf.SMTPConfig) {
 
 var smtpConfig aconf.SMTPConfig
 
+// 初始化时，start下 go InitEmailSender
 func InitEmailSender(ncc *memsto.NotifyConfigCacheType) {
 	mailch = make(chan *gomail.Message, 100000)
 	go updateSmtp(ncc)
 	smtpConfig = ncc.GetSMTP()
 	startEmailSender(smtpConfig)
-
 }
 
+// 更新 SMTP ，在 go InitEmailSender 下
 func updateSmtp(ncc *memsto.NotifyConfigCacheType) {
+	// 每隔一段时间去配置 SMTP
 	for {
 		time.Sleep(1 * time.Minute)
 		smtp := ncc.GetSMTP()
@@ -127,6 +137,7 @@ func updateSmtp(ncc *memsto.NotifyConfigCacheType) {
 	}
 }
 
+// 真正开始邮件发送器的配置
 func startEmailSender(smtp aconf.SMTPConfig) {
 	conf := smtp
 	if conf.Host == "" || conf.Port == 0 {
@@ -186,6 +197,8 @@ func startEmailSender(smtp aconf.SMTPConfig) {
 
 		// Close the connection to the SMTP server if no email was sent in
 		// the last 30 seconds.
+		//如果没有发送电子邮件，请关闭与SMTP服务器的连接
+		//最后 30 秒。
 		case <-time.After(30 * time.Second):
 			if open {
 				if err := s.Close(); err != nil {
